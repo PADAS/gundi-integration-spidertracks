@@ -1,8 +1,42 @@
 import struct
 import typing
+from datetime import datetime, timezone
 from pydantic import create_model, BaseModel
 from pydantic.fields import Field, FieldInfo, Undefined, NoArgAnyCallable
 from typing import Any, Dict, Optional, Union, List, Annotated
+
+UTC_ISO_FORMAT = "%Y-%m-%dT%H:%M:%SZ"
+
+
+def format_utc_datetime(dt: datetime) -> str:
+    """Format any datetime as UTC in the form %Y-%m-%dT%H:%M:%SZ."""
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    else:
+        dt = dt.astimezone(timezone.utc)
+    return dt.strftime(UTC_ISO_FORMAT)
+
+
+def parse_aware_datetime(value: Optional[str]) -> Optional[datetime]:
+    """
+    Parse a datetime string and return a timezone-aware datetime.
+    If the parsed value is naive, it is treated as UTC.
+    Returns None for empty, non-string, or invalid values.
+    """
+    if value is None or not isinstance(value, str):
+        return None
+    value = value.strip()
+    if not value:
+        return None
+    # fromisoformat in Python 3.10 does not accept trailing 'Z'
+    normalized = value.replace("Z", "+00:00")
+    try:
+        dt = datetime.fromisoformat(normalized)
+    except (ValueError, TypeError):
+        return None
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+    return dt
 
 
 def find_config_for_action(configurations, action_id):
