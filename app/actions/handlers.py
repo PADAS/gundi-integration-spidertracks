@@ -13,6 +13,7 @@ from app.services.action_scheduler import crontab_schedule
 logger = logging.getLogger(__name__)
 
 BATCH_SIZE = 200
+MAX_LOOKBACK_DAYS = 30
 
 DEFAULT_SERVICE_API = "https://go.spidertracks.com/api/aff/feed"
 
@@ -66,6 +67,13 @@ async def action_pull_observations(
         start_time = datetime.now(tz=timezone.utc) - timedelta(
             days=action_config.default_lookback_days
         )
+
+    # Hard limit: do not look back more than 30 days
+    now_utc = datetime.now(tz=timezone.utc)
+    min_start = now_utc - timedelta(days=MAX_LOOKBACK_DAYS)
+    if start_time.tzinfo is None:
+        start_time = start_time.replace(tzinfo=timezone.utc)
+    start_time = max(start_time, min_start)
 
     logger.info(f"Fetching positions since {start_time.isoformat()}")
 

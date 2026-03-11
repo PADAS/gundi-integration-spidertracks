@@ -292,7 +292,7 @@ class TestActionPullObservations:
         obs = sent_observations[0]
         assert obs["source"] == "300234010753370"
         assert obs["type"] == "tracking-device"
-        assert obs["subject_type"] == "plane"
+        assert obs["subject_type"] == "aircraft"
         assert obs["location"]["lat"] == -36.8485
         assert obs["location"]["lon"] == 174.7633
         assert obs["additional"]["speed"] == 120.5
