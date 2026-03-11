@@ -34,7 +34,7 @@ async def action_credentials(
     logger.info(f"Auth check passed for integration {integration.id}")
     return {"status": "success"}
 
-@crontab_schedule("*/1 * * * *")
+@crontab_schedule("*/2 * * * *")
 async def action_pull_observations(
     integration: Integration,
     action_config: PullObservationsConfig,
@@ -48,7 +48,7 @@ async def action_pull_observations(
 
     # Create client
     client = SpidertracksClient(
-        base_url=action_config.service_api,
+        base_url=DEFAULT_SERVICE_API,
         username=auth_config.get("username", ""),
         password=auth_config.get("password", ""),
     )

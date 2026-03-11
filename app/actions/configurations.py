@@ -18,11 +18,6 @@ class SpidertracksAuthConfig(AuthActionConfiguration, ExecutableActionMixin):
 class PullObservationsConfig(PullActionConfiguration):
     """Configuration for reading a Spidertracks feed."""
 
-    service_api: str = FieldWithUIOptions(
-        "https://go.spidertracks.com/api/aff/feed",
-        title="API Endpoint",
-        description="Spidertracks AFF feed URL",
-    )
     default_lookback_days: int = FieldWithUIOptions(
         14,
         ge=1,
@@ -32,5 +27,5 @@ class PullObservationsConfig(PullActionConfiguration):
     )
 
     ui_global_options = GlobalUISchemaOptions(
-        order=["service_api", "default_lookback_days"],
+        order=["default_lookback_days",],
     )
