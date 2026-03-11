@@ -7,7 +7,11 @@ from app.actions.configurations import PullObservationsConfig, SpidertracksAuthC
 from app.services.client import SpidertracksClient
 from app.services.gundi import send_observations_to_gundi
 from app.services.state import IntegrationStateManager
-from app.services.utils import find_config_for_action, format_utc_datetime, generate_batches
+from app.services.utils import (
+    find_config_for_action,
+    format_utc_datetime,
+    generate_batches,
+)
 from app.services.action_scheduler import crontab_schedule
 
 logger = logging.getLogger(__name__)
@@ -30,9 +34,26 @@ async def action_credentials(
         password=action_config.password.get_secret_value(),
     )
     start_time = datetime.now(tz=timezone.utc) - timedelta(days=1)
-    await client.fetch_positions(start_time)
-    logger.info(f"Auth check passed for integration {integration.id}")
-    return {"status": "success"}
+
+    try:
+        if positions := await client.fetch_positions(start_time):
+            samples = positions[:10]
+            logger.info(f"Found {len(samples)} positions: {samples}")
+        else:
+            samples = []
+            logger.info("No positions found")
+
+        logger.info(f"Auth check passed for integration {integration.id}")
+        message = (
+            "Authentication check passed, and we found some samples"
+            if samples
+            else "Authentication check passed, but we found no samples within the last 24 hours"
+        )
+        return {"status": "success", "samples": samples, "message": message}
+    except Exception as e:
+        logger.error(f"Auth check failed for integration {integration.id}: {e}")
+        return {"status": "error", "message": str(e)}
+
 
 @crontab_schedule("*/2 * * * *")
 async def action_pull_observations(
@@ -44,7 +65,9 @@ async def action_pull_observations(
     # Extract auth credentials
     auth_config = _get_auth_config(integration)
     if not auth_config:
-        raise ValueError(f"No auth configuration found for integration {integration.id}")
+        raise ValueError(
+            f"No auth configuration found for integration {integration.id}"
+        )
 
     # Create client
     client = SpidertracksClient(
@@ -117,7 +140,9 @@ async def action_pull_observations(
             integration_id=str(integration.id),
         )
         total_sent += len(batch)
-        logger.info(f"Sent batch of {len(batch)} observations ({total_sent}/{len(observations)})")
+        logger.info(
+            f"Sent batch of {len(batch)} observations ({total_sent}/{len(observations)})"
+        )
 
     # Save state
     await state_manager.set_state(
