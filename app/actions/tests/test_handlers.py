@@ -1,3 +1,4 @@
+import asyncio
 import json
 from datetime import datetime, timezone, timedelta
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -6,7 +7,7 @@ import pytest
 from gundi_core.schemas.v2 import Integration
 
 from app.actions.configurations import PullObservationsConfig
-from app.actions.handlers import action_pull_observations
+from app.actions.handlers import action_pull_observations, _pull_locks
 
 
 SAMPLE_POSITIONS = [
@@ -298,3 +299,43 @@ class TestActionPullObservations:
         assert obs["additional"]["speed"] == 120.5
         assert obs["additional"]["track_id"] == "track-001"
         assert obs["additional"]["registration"] == "ZK-ABC"
+
+    @pytest.mark.asyncio
+    async def test_skips_when_already_running(
+        self, integration_with_auth, pull_config, mock_spidertracks_client,
+    ):
+        integration_id = str(integration_with_auth.id)
+        # Pre-populate and acquire the lock to simulate an in-progress run
+        _pull_locks[integration_id] = asyncio.Lock()
+        await _pull_locks[integration_id].acquire()
+
+        try:
+            result = await action_pull_observations(
+                integration=integration_with_auth,
+                action_config=pull_config,
+            )
+        finally:
+            _pull_locks[integration_id].release()
+
+        assert result == {"observations_sent": 0, "skipped": True}
+        mock_spidertracks_client.fetch_positions.assert_not_called()
+
+    @pytest.mark.asyncio
+    async def test_lock_released_after_run(
+        self, integration_with_auth, pull_config, mock_state_manager,
+        mock_spidertracks_client, mock_send_observations,
+    ):
+        integration_id = str(integration_with_auth.id)
+        # Clear any pre-existing lock so this test is deterministic
+        _pull_locks.pop(integration_id, None)
+
+        with patch("app.actions.handlers.IntegrationStateManager", return_value=mock_state_manager), \
+             patch("app.actions.handlers.SpidertracksClient", return_value=mock_spidertracks_client), \
+             patch("app.actions.handlers.send_observations_to_gundi", mock_send_observations):
+
+            await action_pull_observations(
+                integration=integration_with_auth,
+                action_config=pull_config,
+            )
+
+        assert not _pull_locks[integration_id].locked()

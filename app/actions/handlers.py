@@ -1,3 +1,4 @@
+import asyncio
 import logging
 from datetime import datetime, timedelta, timezone
 
@@ -20,6 +21,14 @@ BATCH_SIZE = 200
 MAX_LOOKBACK_DAYS = 30
 
 DEFAULT_SERVICE_API = "https://go.spidertracks.com/api/aff/feed"
+
+_pull_locks: dict[str, asyncio.Lock] = {}
+
+
+def _get_pull_lock(integration_id: str) -> asyncio.Lock:
+    if integration_id not in _pull_locks:
+        _pull_locks[integration_id] = asyncio.Lock()
+    return _pull_locks[integration_id]
 
 
 async def action_credentials(
@@ -57,6 +66,21 @@ async def action_credentials(
 
 @crontab_schedule("*/2 * * * *")
 async def action_pull_observations(
+    integration: Integration,
+    action_config: PullObservationsConfig,
+) -> dict:
+    lock = _get_pull_lock(str(integration.id))
+    if lock.locked():
+        logger.warning(
+            f"pull_observations already running for {integration.id}, skipping"
+        )
+        return {"observations_sent": 0, "skipped": True}
+
+    async with lock:
+        return await _do_pull_observations(integration, action_config)
+
+
+async def _do_pull_observations(
     integration: Integration,
     action_config: PullObservationsConfig,
 ) -> dict:
