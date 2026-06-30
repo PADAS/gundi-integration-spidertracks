@@ -9,6 +9,7 @@ from click.testing import CliRunner
 from app import cli as cli_module
 from app.cli import cli, parse_duration, render_table, resolve_credentials
 from app.cli import DEFAULT_ENDPOINT as DEFAULT_ENDPOINT_FOR_TEST
+from app.cli import summarize
 from app.services.client import HEARTBEAT_ESN
 
 
@@ -148,3 +149,34 @@ def test_positions_prompts_for_password_when_missing():
         result = runner.invoke(cli, ["positions", "-u", "acme"], input="typedpass\n")
     # No positions, but the command ran without error after prompting.
     assert result.exit_code == 0
+
+
+def test_summarize_groups_by_esn():
+    positions = [
+        {"esn": "A", "registration": "ZK-A", "datetime": __import__("datetime").datetime(2026, 3, 10, 12, 0, tzinfo=__import__("datetime").timezone.utc)},
+        {"esn": "A", "registration": "ZK-A", "datetime": __import__("datetime").datetime(2026, 3, 10, 13, 0, tzinfo=__import__("datetime").timezone.utc)},
+        {"esn": "B", "registration": "ZK-B", "datetime": None},
+    ]
+    rollup = summarize(positions)
+    assert [g["esn"] for g in rollup] == ["A", "B"]
+    a = rollup[0]
+    assert a["count"] == 2
+    assert a["latest"].hour == 13
+
+
+def test_summary_command_table():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["summary"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    assert "ZK-ABC" in result.output
+    assert "COUNT" in result.output
+
+
+def test_summary_command_json():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["summary", "--json"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert {row["esn"] for row in data} == {"300234010753370", "300234010753371"}

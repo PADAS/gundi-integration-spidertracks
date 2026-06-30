@@ -148,5 +148,65 @@ def positions(username, password, endpoint, since, no_retry,
     click.echo(render_table(headers, rows))
 
 
+def summarize(positions):
+    groups = {}
+    for p in positions:
+        esn = p["esn"]
+        group = groups.get(esn)
+        if group is None:
+            group = {"esn": esn, "registration": p.get("registration", ""), "count": 0, "latest": None}
+            groups[esn] = group
+        group["count"] += 1
+        if p.get("registration"):
+            group["registration"] = p["registration"]
+        dt = p.get("datetime")
+        if dt and (group["latest"] is None or dt > group["latest"]):
+            group["latest"] = dt
+    return sorted(groups.values(), key=lambda g: g["esn"])
+
+
+def _age(dt) -> str:
+    if not dt:
+        return ""
+    seconds = int((datetime.now(tz=timezone.utc) - dt).total_seconds())
+    if seconds < 0:
+        return "0s ago"
+    for unit, size in (("d", 86400), ("h", 3600), ("m", 60)):
+        if seconds >= size:
+            return f"{seconds // size}{unit} ago"
+    return f"{seconds}s ago"
+
+
+@cli.command()
+@common_options
+@click.option("--include-heartbeat", is_flag=True, default=False,
+              help="Include the heartbeat ESN normally filtered out.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON instead of a table.")
+def summary(username, password, endpoint, since, no_retry, include_heartbeat, as_json):
+    """Per-aircraft rollup: count and most recent report per ESN."""
+    username, password = resolve_credentials(username, password)
+    start_time = compute_start_time(since)
+    client = SpidertracksClient(base_url=endpoint, username=username, password=password)
+    xml_text = fetch_raw_xml(client, start_time, no_retry)
+    records = parse_positions(client, xml_text, include_heartbeat)
+
+    if not records:
+        click.echo(f"No positions found in the last {since}.", err=True)
+        return
+
+    rollup = summarize(records)
+
+    if as_json:
+        click.echo(json.dumps(rollup, indent=2, default=str))
+        return
+
+    headers = ["ESN", "REGISTRATION", "COUNT", "LATEST", "AGE"]
+    rows = [
+        [g["esn"], g["registration"], g["count"], _fmt_dt(g["latest"]), _age(g["latest"])]
+        for g in rollup
+    ]
+    click.echo(render_table(headers, rows))
+
+
 if __name__ == "__main__":
     cli()
