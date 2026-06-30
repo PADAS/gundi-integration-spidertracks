@@ -105,5 +105,48 @@ def cli():
     """Interrogate the Spidertracks AFF feed API for support investigations."""
 
 
+@cli.command()
+@common_options
+@click.option("--esn", default=None, help="Show only this ESN.")
+@click.option("--registration", default=None, help="Show only this registration.")
+@click.option("--include-heartbeat", is_flag=True, default=False,
+              help="Include the heartbeat ESN normally filtered out.")
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON instead of a table.")
+@click.option("--raw", is_flag=True, default=False, help="Print the raw XML response (ignores filters).")
+def positions(username, password, endpoint, since, no_retry,
+              esn, registration, include_heartbeat, as_json, raw):
+    """List parsed positions from the feed."""
+    username, password = resolve_credentials(username, password)
+    start_time = compute_start_time(since)
+    client = SpidertracksClient(base_url=endpoint, username=username, password=password)
+    xml_text = fetch_raw_xml(client, start_time, no_retry)
+
+    if raw:
+        click.echo(xml_text)
+        return
+
+    records = parse_positions(client, xml_text, include_heartbeat)
+    if esn:
+        records = [p for p in records if p["esn"] == esn]
+    if registration:
+        records = [p for p in records if p["registration"] == registration]
+
+    if not records:
+        click.echo(f"No positions found in the last {since}.", err=True)
+        return
+
+    if as_json:
+        click.echo(json.dumps(records, indent=2, default=str))
+        return
+
+    headers = ["ESN", "REGISTRATION", "DATETIME", "LAT", "LON", "SPEED", "HEADING", "ALTITUDE"]
+    rows = [
+        [p["esn"], p["registration"], _fmt_dt(p["datetime"]),
+         p["latitude"], p["longitude"], p["speed"], p["heading"], p["altitude"]]
+        for p in records
+    ]
+    click.echo(render_table(headers, rows))
+
+
 if __name__ == "__main__":
     cli()

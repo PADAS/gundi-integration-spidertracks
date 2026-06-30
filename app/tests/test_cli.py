@@ -8,6 +8,7 @@ from click.testing import CliRunner
 
 from app import cli as cli_module
 from app.cli import cli, parse_duration, render_table, resolve_credentials
+from app.cli import DEFAULT_ENDPOINT as DEFAULT_ENDPOINT_FOR_TEST
 from app.services.client import HEARTBEAT_ESN
 
 
@@ -74,3 +75,76 @@ def test_resolve_credentials_falls_back_to_env(monkeypatch):
     monkeypatch.setenv("SPIDERTRACKS_USERNAME", "envuser")
     monkeypatch.setenv("SPIDERTRACKS_PASSWORD", "envpass")
     assert resolve_credentials(None, None) == ("envuser", "envpass")
+
+
+def _patch_fetch(return_value=None, side_effect=None):
+    return patch.object(
+        cli_module.SpidertracksClient,
+        "fetch_raw",
+        new=AsyncMock(return_value=return_value, side_effect=side_effect),
+    )
+
+
+def test_positions_table_lists_aircraft():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["positions"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    assert "ZK-ABC" in result.output
+    assert "ZK-DEF" in result.output
+    assert HEARTBEAT_ESN not in result.output  # filtered by default
+
+
+def test_positions_json_emits_parsed_dicts():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["positions", "--json"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert len(data) == 2
+    assert data[0]["registration"] == "ZK-ABC"
+
+
+def test_positions_raw_passes_through_xml():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["positions", "--raw"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    assert "affSchema" in result.output
+    assert "<acPos" in result.output
+
+
+def test_positions_filter_by_registration():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["positions", "--registration", "N12345"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    assert "ZK-ABC" not in result.output
+    assert "No positions found" in result.output
+
+
+def test_positions_include_heartbeat():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["positions", "--include-heartbeat"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    assert HEARTBEAT_ESN in result.output
+
+
+def test_positions_auth_failure_exits_1():
+    request = httpx.Request("POST", DEFAULT_ENDPOINT_FOR_TEST)
+    response = httpx.Response(status_code=401, text="Unauthorized", request=request)
+    error = httpx.HTTPStatusError("401", request=request, response=response)
+    runner = CliRunner()
+    with _patch_fetch(side_effect=error):
+        result = runner.invoke(cli, ["positions"], env=CREDS_ENV)
+    assert result.exit_code == 1
+    assert "Authentication failed" in result.output
+
+
+def test_positions_prompts_for_password_when_missing():
+    runner = CliRunner()
+    with _patch_fetch(return_value=EMPTY_XML):
+        result = runner.invoke(cli, ["positions", "-u", "acme"], input="typedpass\n")
+    # No positions, but the command ran without error after prompting.
+    assert result.exit_code == 0
