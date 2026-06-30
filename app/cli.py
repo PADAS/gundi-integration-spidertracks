@@ -208,5 +208,35 @@ def summary(username, password, endpoint, since, no_retry, include_heartbeat, as
     click.echo(render_table(headers, rows))
 
 
+@cli.command()
+@common_options
+@click.option("--json", "as_json", is_flag=True, default=False, help="Emit JSON instead of text.")
+def check(username, password, endpoint, since, no_retry, as_json):
+    """Probe auth and connectivity; report status, timing, and position count."""
+    username, password = resolve_credentials(username, password)
+    start_time = compute_start_time(since)
+    client = SpidertracksClient(base_url=endpoint, username=username, password=password)
+
+    started = time.monotonic()
+    xml_text = fetch_raw_xml(client, start_time, no_retry)
+    elapsed = round(time.monotonic() - started, 3)
+
+    records = parse_positions(client, xml_text, include_heartbeat=True)
+    result = {
+        "status": "ok",
+        "http_status": 200,
+        "round_trip_seconds": elapsed,
+        "positions_found": len(records),
+    }
+
+    if as_json:
+        click.echo(json.dumps(result, indent=2))
+        return
+
+    click.echo(f"Status:          ok (HTTP 200)")
+    click.echo(f"Round-trip:      {elapsed}s")
+    click.echo(f"Positions found: {len(records)} in the last {since}")
+
+
 if __name__ == "__main__":
     cli()

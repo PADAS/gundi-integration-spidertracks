@@ -180,3 +180,33 @@ def test_summary_command_json():
     assert result.exit_code == 0
     data = json.loads(result.output)
     assert {row["esn"] for row in data} == {"300234010753370", "300234010753371"}
+
+
+def test_check_success_exits_0():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["check"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    assert "200" in result.output
+    assert "positions" in result.output.lower()
+
+
+def test_check_json_output():
+    runner = CliRunner()
+    with _patch_fetch(return_value=SAMPLE_XML):
+        result = runner.invoke(cli, ["check", "--json"], env=CREDS_ENV)
+    assert result.exit_code == 0
+    data = json.loads(result.output)
+    assert data["status"] == "ok"
+    assert data["http_status"] == 200
+
+
+def test_check_auth_failure_exits_1():
+    request = httpx.Request("POST", DEFAULT_ENDPOINT_FOR_TEST)
+    response = httpx.Response(status_code=401, text="Unauthorized", request=request)
+    error = httpx.HTTPStatusError("401", request=request, response=response)
+    runner = CliRunner()
+    with _patch_fetch(side_effect=error):
+        result = runner.invoke(cli, ["check"], env=CREDS_ENV)
+    assert result.exit_code == 1
+    assert "Authentication failed" in result.output
