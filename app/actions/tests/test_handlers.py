@@ -10,10 +10,14 @@ from app.actions.configurations import PullObservationsConfig
 from app.actions.handlers import action_pull_observations, _pull_locks
 
 
+# Position timestamps must stay inside the handler's 30-day hard lookback
+# limit, so they are generated relative to the current time.
+BASE_TIME = datetime.now(tz=timezone.utc).replace(microsecond=0) - timedelta(days=1)
+
 SAMPLE_POSITIONS = [
     {
         "esn": "300234010753370",
-        "datetime": datetime(2026, 3, 10, 12, 30, 0, tzinfo=timezone.utc),
+        "datetime": BASE_TIME,
         "latitude": -36.8485,
         "longitude": 174.7633,
         "speed": 120.5,
@@ -24,7 +28,7 @@ SAMPLE_POSITIONS = [
     },
     {
         "esn": "300234010753371",
-        "datetime": datetime(2026, 3, 10, 12, 35, 0, tzinfo=timezone.utc),
+        "datetime": BASE_TIME + timedelta(minutes=5),
         "latitude": -37.7870,
         "longitude": 175.2793,
         "speed": 95.0,
@@ -169,7 +173,9 @@ class TestActionPullObservations:
         self, integration_with_auth, pull_config, mock_state_manager,
         mock_spidertracks_client, mock_send_observations,
     ):
-        saved_timestamp = "2026-03-09T10:00:00+00:00"
+        saved_timestamp = (
+            datetime.now(tz=timezone.utc).replace(microsecond=0) - timedelta(days=2)
+        ).isoformat()
         mock_state_manager.get_state.return_value = {"latest_timestamp": saved_timestamp}
 
         with patch("app.actions.handlers.IntegrationStateManager", return_value=mock_state_manager), \
@@ -273,7 +279,7 @@ class TestActionPullObservations:
             )
 
         saved_state = mock_state_manager.set_state.call_args[1]["state"]
-        assert saved_state["latest_timestamp"] == "2026-03-10T12:35:00+00:00"
+        assert saved_state["latest_timestamp"] == SAMPLE_POSITIONS[1]["datetime"].isoformat()
 
     @pytest.mark.asyncio
     async def test_observations_format(
