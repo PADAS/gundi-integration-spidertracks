@@ -38,13 +38,21 @@ class SpidertracksClient:
         self.username = username
         self.password = password
 
+    async def fetch_raw(self, start_time: datetime, retry: bool = True) -> str:
+        if retry:
+            return await self._fetch_raw_with_backoff(start_time)
+        return await self._fetch_raw_once(start_time)
+
     @backoff.on_exception(
         backoff.expo,
         (httpx.HTTPStatusError, httpx.ReadTimeout, httpx.ConnectTimeout),
         max_tries=3,
         max_time=30,
     )
-    async def fetch_positions(self, start_time: datetime) -> List[dict]:
+    async def _fetch_raw_with_backoff(self, start_time: datetime) -> str:
+        return await self._fetch_raw_once(start_time)
+
+    async def _fetch_raw_once(self, start_time: datetime) -> str:
         report_time = format_utc_datetime(datetime.now(tz=timezone.utc))
         start_time_str = format_utc_datetime(start_time)
         xml_payload = AFF_REQUEST_TEMPLATE.format(start_time=start_time_str,
@@ -64,9 +72,12 @@ class SpidertracksClient:
             )
             response.raise_for_status()
 
-        return self._parse_response(response.text)
+        return response.text
 
-    def _parse_response(self, xml_text: str) -> List[dict]:
+    async def fetch_positions(self, start_time: datetime) -> List[dict]:
+        return self.parse_response(await self.fetch_raw(start_time))
+
+    def parse_response(self, xml_text: str, include_heartbeat: bool = False) -> List[dict]:
         positions = []
         try:
             root = ElementTree.fromstring(xml_text)
@@ -77,7 +88,9 @@ class SpidertracksClient:
         ac_pos_tag = f"{{{AFF_NS}}}acPos"
         for ac_pos in root.iter(ac_pos_tag):
             esn = ac_pos.get("esn") or ""
-            if not esn or esn == HEARTBEAT_ESN:
+            if not esn:
+                continue
+            if not include_heartbeat and esn == HEARTBEAT_ESN:
                 continue
 
             position = {
