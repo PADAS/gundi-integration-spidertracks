@@ -36,3 +36,11 @@ python -m app.cli positions --raw --since 1h
 Add `--json` to any command for machine-readable output, `--include-heartbeat`
 to keep the heartbeat ESN, and `--no-retry` to surface the first failure
 immediately.
+
+## Activity-log redaction
+
+The configuration attached to every activity-log event is redacted before publishing
+(`app/services/redaction.py`): values under secret-looking keys (`password`, `token`,
+`api_key`, `secret`, ...) and fields a config model declares as `SecretStr`,
+`Field(format="password")` or `UIOptions(widget="password")` are replaced with
+`**********`, matched by field name or alias and at any depth of nested models.
